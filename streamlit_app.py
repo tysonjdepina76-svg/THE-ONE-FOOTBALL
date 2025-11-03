@@ -294,4 +294,4 @@ with tab3:
             st.warning(f"No props meet the {confidence_threshold}% confidence threshold")
 
 st.markdown("---")
-st.caption("🏈 THE ONE FOOTBALL - Final Version") 
+st.caption("🏈 THE ONE FOOTBALL - Final Version")
