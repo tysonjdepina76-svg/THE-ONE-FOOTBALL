@@ -1,59 +1,57 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-from datetime import datetime
 
-st.set_page_config(page_title="THE ONE FOOTBALL v8.0", page_icon="🏈", layout="wide")
+st.set_page_config(page_title="THE ONE FOOTBALL", page_icon="🏈", layout="wide")
 
-NFL_TEAMS = sorted(["Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
+NFL_TEAMS = ["Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
     "Carolina Panthers", "Chicago Bears", "Cincinnati Bengals", "Cleveland Browns",
     "Dallas Cowboys", "Denver Broncos", "Detroit Lions", "Green Bay Packers",
     "Houston Texans", "Indianapolis Colts", "Jacksonville Jaguars", "Kansas City Chiefs",
     "Las Vegas Raiders", "Los Angeles Chargers", "Los Angeles Rams", "Miami Dolphins",
     "Minnesota Vikings", "New England Patriots", "New Orleans Saints", "New York Giants",
     "New York Jets", "Philadelphia Eagles", "Pittsburgh Steelers", "San Francisco 49ers",
-    "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"])
+    "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"]
 
 POSITIONS = ["QB", "RB", "WR", "TE"]
 
 POSITION_STATS = {
-    "QB": ["passing_yards", "passing_tds", "rushing_yards", "rushing_tds"],
-    "RB": ["rushing_yards", "rushing_tds", "receiving_yards", "receiving_tds"],
+    "QB": ["passing_yards", "passing_tds", "rushing_yards"],
+    "RB": ["rushing_yards", "rushing_tds", "receiving_yards"],
     "WR": ["receiving_yards", "receiving_tds", "receptions"],
     "TE": ["receiving_yards", "receiving_tds", "receptions"]
 }
 
-STATS_CONFIG = {
-    "passing_yards": {"name": "Passing Yards", "base": 250, "variance": 30},
-    "passing_tds": {"name": "Passing TDs", "base": 1.5, "variance": 0.5},
-    "rushing_yards": {"name": "Rushing Yards", "base": 65, "variance": 20},
-    "rushing_tds": {"name": "Rushing TDs", "base": 0.5, "variance": 0.4},
-    "receiving_yards": {"name": "Receiving Yards", "base": 55, "variance": 18},
-    "receiving_tds": {"name": "Receiving TDs", "base": 0.4, "variance": 0.3},
-    "receptions": {"name": "Receptions", "base": 5.5, "variance": 1.5}
+STATS = {
+    "passing_yards": {"name": "Passing Yards", "base": 250},
+    "passing_tds": {"name": "Passing TDs", "base": 1.5},
+    "rushing_yards": {"name": "Rushing Yards", "base": 65},
+    "rushing_tds": {"name": "Rushing TDs", "base": 0.5},
+    "receiving_yards": {"name": "Receiving Yards", "base": 55},
+    "receiving_tds": {"name": "Receiving TDs", "base": 0.4},
+    "receptions": {"name": "Receptions", "base": 5.5}
 }
 
-DEFENSE_RANKINGS = {
-    "Arizona Cardinals": {"pass": 28, "run": 22}, "Dallas Cowboys": {"pass": 11, "run": 16},
-    "Baltimore Ravens": {"pass": 8, "run": 5}, "Buffalo Bills": {"pass": 12, "run": 10},
-    "Kansas City Chiefs": {"pass": 13, "run": 12}, "San Francisco 49ers": {"pass": 2, "run": 2}
+DEF = {
+    "Arizona Cardinals": {"pass": 28, "run": 22}, 
+    "Dallas Cowboys": {"pass": 11, "run": 16},
+    "Baltimore Ravens": {"pass": 8, "run": 5}, 
+    "Kansas City Chiefs": {"pass": 13, "run": 12}
 }
 
-POPULAR_PLAYERS = {
-    "QB": ["Dak Prescott", "Kyler Murray", "Patrick Mahomes", "Josh Allen"],
+QUICK = {
+    "QB": ["Dak Prescott", "Kyler Murray", "Patrick Mahomes"],
     "RB": ["Javonte Williams", "Bam Knight", "Saquon Barkley"],
-    "WR": ["CeeDee Lamb", "Marvin Harrison Jr.", "George Pickens", "Tyreek Hill"],
+    "WR": ["CeeDee Lamb", "Marvin Harrison Jr.", "George Pickens"],
     "TE": ["Jake Ferguson", "Trey McBride", "Travis Kelce"]
 }
 
-# Session state
-for key in ['games', 'players', 'game_conditions', 'current_game', 'analysis_results']:
-    if key not in st.session_state:
-        st.session_state[key] = [] if key in ['games', 'analysis_results'] else {} if key != 'current_game' else None
+for k in ['games', 'players', 'conditions', 'current', 'results']:
+    if k not in st.session_state:
+        st.session_state[k] = [] if k in ['games', 'results'] else {} if k != 'current' else None
 
-def calculate_defense_factor(opponent, stat_type):
-    defense_type = "pass" if any(x in stat_type for x in ["passing", "receiving", "receptions"]) else "run"
-    rank = DEFENSE_RANKINGS.get(opponent, {}).get(defense_type, 16)
+def calc_def(opp, stat):
+    typ = "pass" if any(x in stat for x in ["passing", "receiving", "receptions"]) else "run"
+    rank = DEF.get(opp, {}).get(typ, 16)
     if rank <= 5: return 0.80
     elif rank <= 10: return 0.88
     elif rank <= 16: return 0.95
@@ -61,206 +59,191 @@ def calculate_defense_factor(opponent, stat_type):
     elif rank <= 28: return 1.12
     else: return 1.18
 
-def calculate_projection(player, position, stat, opponent, is_home, game_id):
-    cfg = STATS_CONFIG[stat]
-    base = cfg['base']
-    variance = cfg['variance']
+def project(player, pos, stat, opp, home, gid):
+    base = STATS[stat]['base']
     
-    base_adj = {
-        ("QB", "rushing_yards"): 25, ("QB", "rushing_tds"): 0.3,
-        ("RB", "rushing_yards"): 75, ("RB", "receiving_yards"): 30,
-        ("WR", "receiving_yards"): 65, ("WR", "receptions"): 6.0,
-        ("TE", "receiving_yards"): 45, ("TE", "receptions"): 5.0
+    adj = {
+        ("QB", "rushing_yards"): 25, ("RB", "rushing_yards"): 75,
+        ("RB", "receiving_yards"): 30, ("WR", "receiving_yards"): 65,
+        ("WR", "receptions"): 6.0, ("TE", "receiving_yards"): 45,
+        ("TE", "receptions"): 5.0
     }
-    base = base_adj.get((position, stat), base)
+    base = adj.get((pos, stat), base)
     
-    defense_factor = calculate_defense_factor(opponent, stat)
-    home_factor = 1.07 if is_home else 1.0
+    df = calc_def(opp, stat)
+    hf = 1.07 if home else 1.0
     
-    conditions = st.session_state.game_conditions.get(game_id, {})
-    total = conditions.get('total', 45)
+    cond = st.session_state.conditions.get(gid, {})
+    tot = cond.get('total', 45)
     
-    if total >= 50: script_factor = 1.12
-    elif total >= 47: script_factor = 1.08
-    elif total >= 44: script_factor = 1.04
-    else: script_factor = 1.0
+    if tot >= 50: sf = 1.12
+    elif tot >= 47: sf = 1.08
+    elif tot >= 44: sf = 1.04
+    else: sf = 1.0
     
-    projection = base * defense_factor * home_factor * script_factor
-    line = max(0, np.random.normal(projection, variance * 0.15))
-    target = line * (1 + np.random.uniform(0.06, 0.14))
+    proj = base * df * hf * sf
+    line = max(0, np.random.normal(proj, 5))
+    tgt = line * 1.10
     
-    base_confidence = 65
-    if defense_factor > 1.15: base_confidence += 10
-    elif defense_factor < 0.85: base_confidence -= 10
-    if is_home: base_confidence += 3
-    if script_factor > 1.08: base_confidence += 5
+    conf = 65
+    if df > 1.15: conf += 10
+    elif df < 0.85: conf -= 10
+    if home: conf += 3
+    if sf > 1.08: conf += 5
     
-    confidence = np.clip(base_confidence + np.random.uniform(-3, 3), 55, 85)
+    conf = np.clip(conf + np.random.uniform(-3, 3), 55, 85)
     
     return {
-        'player': player, 'position': position, 'stat': STATS_CONFIG[stat]['name'],
-        'line': round(line, 1), 'target': round(target, 1), 'margin': round(target - line, 1),
-        'confidence': round(confidence, 1), 'opponent': opponent, 'is_home': is_home
+        'player': player, 'pos': pos, 'stat': STATS[stat]['name'],
+        'line': round(line, 1), 'target': round(tgt, 1),
+        'margin': round(tgt - line, 1), 'confidence': round(conf, 1),
+        'opp': opp, 'home': home
     }
 
-def get_parlay_odds(legs):
-    odds = {2: ("+264", 2.64), 3: ("+596", 5.96), 4: ("+1228", 11.28), 5: ("+2435", 23.35),
-            6: ("+4700", 47.0), 7: ("+7500", 75.0), 8: ("+9500", 95.0), 9: ("+15000", 150.0),
-            10: ("+25000", 250.0), 11: ("+35000", 350.0), 12: ("+40000", 400.0)}
-    return odds.get(legs, ("+40000", 400.0))
+def odds(legs):
+    o = {2: ("+264", 2.64), 3: ("+596", 5.96), 4: ("+1228", 11.28), 
+         5: ("+2435", 23.35), 6: ("+4700", 47.0), 8: ("+9500", 95.0),
+         10: ("+25000", 250.0), 12: ("+40000", 400.0)}
+    return o.get(legs, ("+40000", 400.0))
 
-# Header
-st.markdown("""
-<div style='text-align: center; background: linear-gradient(135deg, #1f5156 0%, #2a7d87 100%); 
-     color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;'>
-    <h1>🏈 THE ONE FOOTBALL v8.0</h1>
-    <p>Built to Win 💰</p>
-</div>
-""", unsafe_allow_html=True)
+st.title("🏈 THE ONE FOOTBALL")
+st.caption("Built to Win 💰")
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Games", len(st.session_state.games))
-c2.metric("Props", len(st.session_state.analysis_results))
-c3.metric("v8.0", "FINAL")
+c2.metric("Props", len(st.session_state.results))
+c3.metric("v9.0", "FINAL")
 
-tab1, tab2, tab3 = st.tabs(["🏟️ Setup", "👥 Players", "📊 Results"])
+t1, t2, t3 = st.tabs(["Setup", "Players", "Results"])
 
-with tab1:
-    st.header("Game Setup")
-    col1, col2 = st.columns(2)
+with t1:
+    st.subheader("Setup Game")
+    c1, c2 = st.columns(2)
     
-    with col1:
-        st.subheader("Create Game")
-        away = st.selectbox("Away", [""] + NFL_TEAMS, key="away")
-        home = st.selectbox("Home", [""] + NFL_TEAMS, key="home")
+    with c1:
+        away = st.selectbox("Away", [""] + NFL_TEAMS, key="a")
+        home = st.selectbox("Home", [""] + NFL_TEAMS, key="h")
         
-        if st.button("Create Game", type="primary"):
+        if st.button("Create", type="primary"):
             if away and home and away != home:
-                game = f"{away} @ {home}"
-                if game not in st.session_state.games:
-                    st.session_state.games.append(game)
-                    st.session_state.players[game] = []
-                    st.success(f"✅ {game}")
+                g = f"{away} @ {home}"
+                if g not in st.session_state.games:
+                    st.session_state.games.append(g)
+                    st.session_state.players[g] = []
+                    st.success("✅")
                     st.rerun()
     
-    with col2:
-        st.subheader("Conditions")
+    with c2:
         if st.session_state.games:
-            sel = st.selectbox("Game", st.session_state.games)
-            total = st.number_input("Over/Under", 30.0, 65.0, 48.5, 0.5)
-            spread = st.number_input("Spread", -20.0, 20.0, -7.5, 0.5)
+            sel = st.selectbox("Select", st.session_state.games)
+            tot = st.number_input("O/U", 30.0, 65.0, 48.5, 0.5)
             
             if st.button("Activate", type="primary"):
-                st.session_state.game_conditions[sel] = {'total': total, 'spread': spread}
-                st.session_state.current_game = sel
+                st.session_state.conditions[sel] = {'total': tot}
+                st.session_state.current = sel
                 st.success("✅")
                 st.rerun()
 
-with tab2:
-    st.header("Add Players")
+with t2:
+    st.subheader("Add Players")
     
-    if not st.session_state.current_game:
-        st.warning("Set up game first")
+    if not st.session_state.current:
+        st.warning("Setup game first")
     else:
-        teams = st.session_state.current_game.split(" @ ")
+        teams = st.session_state.current.split(" @ ")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            team = st.selectbox("Team", teams)
-            method = st.radio("Method", ["Quick", "Manual"], horizontal=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            tm = st.selectbox("Team", teams)
+            meth = st.radio("Method", ["Quick", "Manual"], horizontal=True)
             
-            if method == "Quick":
-                pos = st.selectbox("Position", POSITIONS, key="qp")
-                name = st.selectbox("Player", POPULAR_PLAYERS[pos], key="qn")
+            if meth == "Quick":
+                p = st.selectbox("Pos", POSITIONS, key="qp")
+                n = st.selectbox("Player", QUICK[p], key="qn")
             else:
-                pos = st.selectbox("Position", POSITIONS, key="mp")
-                name = st.text_input("Name", key="mn")
+                p = st.selectbox("Pos", POSITIONS, key="mp")
+                n = st.text_input("Name", key="mn")
             
-            if st.button("ADD & ANALYZE", type="primary"):
-                if name:
-                    if st.session_state.current_game not in st.session_state.players:
-                        st.session_state.players[st.session_state.current_game] = []
+            if st.button("ADD", type="primary"):
+                if n:
+                    if st.session_state.current not in st.session_state.players:
+                        st.session_state.players[st.session_state.current] = []
                     
-                    existing = [p['name'] for p in st.session_state.players[st.session_state.current_game]]
-                    if name not in existing:
-                        st.session_state.players[st.session_state.current_game].append(
-                            {'name': name, 'position': pos, 'team': team}
+                    ex = [x['name'] for x in st.session_state.players[st.session_state.current]]
+                    if n not in ex:
+                        st.session_state.players[st.session_state.current].append(
+                            {'name': n, 'pos': p, 'team': tm}
                         )
                         
-                        is_home = (team == teams[1])
-                        opponent = teams[1] if team == teams[0] else teams[0]
+                        hm = (tm == teams[1])
+                        op = teams[1] if tm == teams[0] else teams[0]
                         
-                        for stat in POSITION_STATS[pos]:
-                            result = calculate_projection(name, pos, stat, opponent, is_home, 
-                                                         st.session_state.current_game)
-                            st.session_state.analysis_results.append(result)
+                        for s in POSITION_STATS[p]:
+                            res = project(n, p, s, op, hm, st.session_state.current)
+                            st.session_state.results.append(res)
                         
-                        st.success(f"✅ {name}")
+                        st.success(f"✅ {n}")
                         st.rerun()
         
-        with col2:
-            st.subheader("Players")
-            if st.session_state.current_game in st.session_state.players:
-                for i, p in enumerate(st.session_state.players[st.session_state.current_game]):
-                    ca, cb, cc = st.columns([3, 2, 1])
-                    ca.write(f"**{p['name']}**")
-                    cb.write(f"{p['position']}")
-                    if cc.button("🗑️", key=f"d{i}"):
-                        removed = st.session_state.players[st.session_state.current_game][i]['name']
-                        st.session_state.players[st.session_state.current_game].pop(i)
-                        st.session_state.analysis_results = [
-                            r for r in st.session_state.analysis_results if r['player'] != removed
-                        ]
+        with c2:
+            st.markdown("**Players**")
+            if st.session_state.current in st.session_state.players:
+                for i, pl in enumerate(st.session_state.players[st.session_state.current]):
+                    ca, cb = st.columns([4, 1])
+                    ca.write(f"{pl['name']} ({pl['pos']})")
+                    if cb.button("🗑️", key=f"d{i}"):
+                        rm = st.session_state.players[st.session_state.current][i]['name']
+                        st.session_state.players[st.session_state.current].pop(i)
+                        st.session_state.results = [r for r in st.session_state.results if r['player'] != rm]
                         st.rerun()
 
-with tab3:
-    st.header("Results & Parlay")
+with t3:
+    st.subheader("Results")
     
-    if not st.session_state.analysis_results:
-        st.info("Add players to see results")
+    if not st.session_state.results:
+        st.info("Add players")
     else:
-        threshold = st.slider("Min Confidence %", 50, 85, 60, 5)
-        filtered = [r for r in st.session_state.analysis_results if r['confidence'] >= threshold]
+        thr = st.slider("Min Conf %", 50, 85, 60, 5)
+        filt = [r for r in st.session_state.results if r['confidence'] >= thr]
         
-        st.markdown(f"### ✅ {len(filtered)} Props Above {threshold}%")
+        st.markdown(f"**{len(filt)} props ≥ {thr}%**")
         
-        if filtered:
-            for r in filtered:
-                emoji = "🟢" if r['confidence'] >= 70 else "🟡"
-                with st.expander(f"{emoji} {r['player']} - {r['stat']} | {r['confidence']}%"):
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Line", r['line'])
-                    c2.metric("Target", r['target'], f"+{r['margin']}")
-                    c3.metric("Conf", f"{r['confidence']}%")
+        if filt:
+            for r in filt:
+                em = "🟢" if r['confidence'] >= 70 else "🟡"
+                with st.expander(f"{em} {r['player']} - {r['stat']} | {r['confidence']}%"):
+                    ca, cb, cc = st.columns(3)
+                    ca.metric("Line", r['line'])
+                    cb.metric("Target", r['target'])
+                    cc.metric("Conf", f"{r['confidence']}%")
             
-            if len(filtered) >= 2:
+            if len(filt) >= 2:
                 st.markdown("---")
-                st.markdown("## 💰 Build Parlay")
+                st.markdown("**Parlay Builder**")
                 
-                legs = st.slider("Number of Legs", 2, min(12, len(filtered)), 6)
-                parlay = filtered[:legs]
-                prob = np.prod([p['confidence']/100 for p in parlay]) * 100
-                odds_str, mult = get_parlay_odds(legs)
+                legs = st.slider("Legs", 2, min(12, len(filt)), 6)
+                parl = filt[:legs]
+                prob = np.prod([x['confidence']/100 for x in parl]) * 100
+                od_str, mult = odds(legs)
                 
                 ca, cb, cc = st.columns(3)
-                ca.metric("🎲 Probability", f"{prob:.2f}%")
-                cb.metric("💵 Odds", odds_str)
-                cc.metric("📈 EV", f"{((prob/100*mult-1)*100):+.0f}%")
+                ca.metric("Prob", f"{prob:.2f}%")
+                cb.metric("Odds", od_str)
+                cc.metric("EV", f"{((prob/100*mult-1)*100):+.0f}%")
                 
-                st.markdown("### Your Parlay:")
-                for i, p in enumerate(parlay, 1):
-                    st.markdown(f"{i}. **{p['player']}** OVER **{p['line']}** {p['stat']}")
+                st.markdown("**Your Parlay:**")
+                for i, x in enumerate(parl, 1):
+                    st.write(f"{i}. {x['player']} OVER {x['line']} {x['stat']}")
                 
-                bet = st.number_input("Bet Amount ($)", 10, 1000, 100, 10)
-                st.success(f"**Potential Win: ${bet * mult:,.0f}**")
+                bet = st.number_input("Bet $", 10, 1000, 100, 10)
+                st.success(f"Win: ${bet * mult:,.0f}")
                 
-                st.markdown("### 📋 Copy to Sportsbook:")
-                lines = []
-                for i, p in enumerate(parlay, 1):
-                    lines.append(f"{i}. {p['player']} OVER {p['line']} {p['stat']}")
-                parlay_text = "
-".join(lines)
-                st.code(parlay_text)
+                st.markdown("**Copy:**")
+                output = ""
+                for i, x in enumerate(parl, 1):
+                    output += f"{i}. {x['player']} OVER {x['line']} {x['stat']}
+"
+                st.code(output)
 
 st.markdown("---")
-st.markdown("<div style='text-align:center;'>🏈 THE ONE FOOTBALL v8.0 FINAL</div>", unsafe_allow_html=True)
+st.caption("🏈 THE ONE FOOTBALL v9.0")
