@@ -2,13 +2,39 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import json
 
 # ==================== PAGE CONFIG ====================
 st.set_page_config(
-    page_title="THE ONE FOOTBALL v7.0",
+    page_title="THE ONE FOOTBALL v8.0 FINAL",
     page_icon="🏈",
     layout="wide"
 )
+
+# ==================== CUSTOM CSS ====================
+st.markdown("""
+<style>
+    .stButton button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    .success-box {
+        background: #d4edda;
+        border-left: 4px solid #28a745;
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 0.5rem 0;
+    }
+    .warning-box {
+        background: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 0.5rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ==================== CONSTANTS ====================
 NFL_TEAMS = sorted([
@@ -24,7 +50,6 @@ NFL_TEAMS = sorted([
 
 POSITIONS = ["QB", "RB", "WR", "TE"]
 
-# Auto stats by position
 POSITION_STATS = {
     "QB": ["passing_yards", "passing_tds", "rushing_yards", "rushing_tds"],
     "RB": ["rushing_yards", "rushing_tds", "receiving_yards", "receiving_tds"],
@@ -77,22 +102,36 @@ DEFENSE_RANKINGS = {
     "Washington Commanders": {"pass": 1, "run": 1}
 }
 
-# ==================== SESSION STATE ====================
-if 'games' not in st.session_state:
-    st.session_state.games = []
-if 'players' not in st.session_state:
-    st.session_state.players = {}
-if 'game_conditions' not in st.session_state:
-    st.session_state.game_conditions = {}
-if 'current_game' not in st.session_state:
-    st.session_state.current_game = None
-if 'analysis_results' not in st.session_state:
-    st.session_state.analysis_results = []
+# Popular players for quick-add
+POPULAR_PLAYERS = {
+    "QB": ["Dak Prescott", "Kyler Murray", "Patrick Mahomes", "Josh Allen", "Lamar Jackson"],
+    "RB": ["Javonte Williams", "Bam Knight", "Saquon Barkley", "Christian McCaffrey"],
+    "WR": ["CeeDee Lamb", "Marvin Harrison Jr.", "Tyreek Hill", "Justin Jefferson", "George Pickens"],
+    "TE": ["Jake Ferguson", "Trey McBride", "Travis Kelce", "George Kittle"]
+}
 
-# ==================== FUNCTIONS ====================
+# ==================== SESSION STATE ====================
+def init_session_state():
+    defaults = {
+        'games': [],
+        'players': {},
+        'game_conditions': {},
+        'current_game': None,
+        'analysis_results': [],
+        'parlay_history': [],
+        'app_version': '8.0'
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+init_session_state()
+
+# ==================== CORE FUNCTIONS ====================
 
 def calculate_defense_factor(opponent, stat_type):
-    defense_type = "pass" if "passing" in stat_type or "receiving" in stat_type or "receptions" in stat_type else "run"
+    """Calculate defensive impact multiplier"""
+    defense_type = "pass" if any(x in stat_type for x in ["passing", "receiving", "receptions"]) else "run"
     rank = DEFENSE_RANKINGS.get(opponent, {}).get(defense_type, 16)
     
     if rank <= 5:
@@ -109,24 +148,26 @@ def calculate_defense_factor(opponent, stat_type):
         return 1.18
 
 def calculate_projection(player, position, stat, opponent, is_home, game_id):
+    """Elite projection engine with all factors"""
     cfg = STATS_CONFIG[stat]
     base = cfg['base']
     variance = cfg['variance']
     
-    # Adjust base by position
-    if position == "QB" and stat == "rushing_yards":
-        base = 25
-    elif position == "QB" and stat == "rushing_tds":
-        base = 0.3
-    elif position == "RB" and stat == "rushing_yards":
-        base = 75
-    elif position == "RB" and stat == "receiving_yards":
-        base = 30
-    elif position == "WR" and stat == "receiving_yards":
-        base = 65
-    elif position == "TE" and stat == "receiving_yards":
-        base = 45
+    # Position-specific base adjustments
+    adjustments = {
+        ("QB", "rushing_yards"): 25,
+        ("QB", "rushing_tds"): 0.3,
+        ("RB", "rushing_yards"): 75,
+        ("RB", "receiving_yards"): 30,
+        ("WR", "receiving_yards"): 65,
+        ("WR", "receptions"): 6.0,
+        ("TE", "receiving_yards"): 45,
+        ("TE", "receptions"): 5.0
+    }
     
+    base = adjustments.get((position, stat), base)
+    
+    # Calculate all factors
     defense_factor = calculate_defense_factor(opponent, stat)
     home_factor = 1.07 if is_home else 1.0
     
@@ -135,12 +176,21 @@ def calculate_projection(player, position, stat, opponent, is_home, game_id):
     spread = conditions.get('spread', 0)
     
     # Game script
-    script_factor = 1.08 if total >= 47 else 1.04 if total >= 44 else 1.0
+    if total >= 50:
+        script_factor = 1.12
+    elif total >= 47:
+        script_factor = 1.08
+    elif total >= 44:
+        script_factor = 1.04
+    else:
+        script_factor = 1.0
     
+    # Calculate projection
     projection = base * defense_factor * home_factor * script_factor
     line = max(0, np.random.normal(projection, variance * 0.15))
     target = line * (1 + np.random.uniform(0.06, 0.14))
     
+    # Confidence
     base_confidence = 65
     if defense_factor > 1.15:
         base_confidence += 10
@@ -148,6 +198,8 @@ def calculate_projection(player, position, stat, opponent, is_home, game_id):
         base_confidence -= 10
     if is_home:
         base_confidence += 3
+    if script_factor > 1.08:
+        base_confidence += 5
     
     confidence = np.clip(base_confidence + np.random.uniform(-3, 3), 55, 85)
     
@@ -155,34 +207,76 @@ def calculate_projection(player, position, stat, opponent, is_home, game_id):
         'player': player,
         'position': position,
         'stat': STATS_CONFIG[stat]['name'],
+        'stat_key': stat,
         'line': round(line, 1),
         'target': round(target, 1),
         'margin': round(target - line, 1),
         'confidence': round(confidence, 1),
         'opponent': opponent,
-        'is_home': is_home
+        'is_home': is_home,
+        'defense_factor': round(defense_factor, 2),
+        'script_factor': round(script_factor, 2),
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
+
+def get_parlay_odds(legs):
+    """Get parlay payout odds"""
+    odds_map = {
+        2: ("+264", 2.64), 3: ("+596", 5.96), 4: ("+1228", 11.28),
+        5: ("+2435", 23.35), 6: ("+4700", 47.0), 7: ("+7500", 75.0),
+        8: ("+9500", 95.0), 9: ("+15000", 150.0), 10: ("+25000", 250.0),
+        11: ("+35000", 350.0), 12: ("+40000", 400.0)
+    }
+    return odds_map.get(legs, ("+40000", 400.0))
+
+def save_parlay(parlay_props, legs, prob, odds_str):
+    """Save parlay to history"""
+    parlay_data = {
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'game': st.session_state.current_game,
+        'legs': legs,
+        'probability': prob,
+        'odds': odds_str,
+        'props': parlay_props
+    }
+    st.session_state.parlay_history.append(parlay_data)
+
+def export_parlay_text(parlay_props):
+    """Generate copy-paste parlay text"""
+    lines = []
+    for i, p in enumerate(parlay_props, 1):
+        home_icon = "HOME" if p['is_home'] else "AWAY"
+        lines.append(f"{i}. {p['player']} ({home_icon}) OVER {p['line']} {p['stat']}")
+    return "
+".join(lines)
 
 # ==================== HEADER ====================
 st.markdown("""
 <div style='text-align: center; background: linear-gradient(135deg, #1f5156 0%, #2a7d87 100%); 
      color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;'>
-    <h1 style='margin: 0;'>🏈 THE ONE FOOTBALL v7.0</h1>
-    <p style='margin: 0.5rem 0 0 0; font-size: 1.1rem;'>ONE-CLICK ANALYSIS - No Manual Prop Selection!</p>
+    <h1 style='margin: 0;'>🏈 THE ONE FOOTBALL v8.0</h1>
+    <p style='margin: 0.5rem 0 0 0; font-size: 1.1rem;'>⚡ FINAL EDITION - Built to Win 💰</p>
 </div>
 """, unsafe_allow_html=True)
 
+# Quick stats bar
+col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+col_s1.metric("📊 Games", len(st.session_state.games))
+col_s2.metric("👥 Total Props", len(st.session_state.analysis_results))
+col_s3.metric("📜 Parlays Saved", len(st.session_state.parlay_history))
+col_s4.metric("🎯 Version", "8.0 FINAL")
+
 # ==================== TABS ====================
-tab1, tab2, tab3 = st.tabs(["🏟️ Setup Game", "👥 Add Players & Analyze", "📊 Results"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏟️ Setup", "👥 Players", "📊 Results", "📜 History"])
 
 # ==================== TAB 1: SETUP ====================
 with tab1:
-    st.header("⚡ Quick Game Setup")
+    st.header("⚡ Game Setup")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Create Game")
+        st.subheader("1️⃣ Create Game")
         away = st.selectbox("Away Team", [""] + NFL_TEAMS, key="away")
         home = st.selectbox("Home Team", [""] + NFL_TEAMS, key="home")
         
@@ -193,165 +287,25 @@ with tab1:
                     st.session_state.games.append(game)
                     st.session_state.players[game] = []
                     st.success(f"✅ {game}")
+                    st.balloons()
                     st.rerun()
     
     with col2:
-        st.subheader("Set Conditions")
+        st.subheader("2️⃣ Game Conditions")
         if st.session_state.games:
-            sel_game = st.selectbox("Select Game", st.session_state.games, key="cond_game")
+            sel_game = st.selectbox("Select Game", st.session_state.games)
+            total = st.number_input("Over/Under", 30.0, 65.0, 48.5, 0.5)
+            spread = st.number_input("Spread", -20.0, 20.0, -7.5, 0.5)
             
-            total = st.number_input("Over/Under", 30.0, 65.0, 45.0, 0.5)
-            spread = st.number_input("Spread", -20.0, 20.0, 0.0, 0.5)
-            
-            if st.button("💾 Save Conditions"):
+            if st.button("💾 Activate", type="primary"):
                 st.session_state.game_conditions[sel_game] = {'total': total, 'spread': spread}
                 st.session_state.current_game = sel_game
-                st.success("✅ Saved!")
+                st.success(f"✅ Active: {sel_game}")
                 st.rerun()
-
-# ==================== TAB 2: ADD PLAYERS ====================
-with tab2:
-    st.header("👥 Add Players & Auto-Analyze")
     
-    if not st.session_state.current_game:
-        st.warning("⚠️ Create a game and set conditions first (Tab 1)")
-    else:
-        st.info(f"**Current Game:** {st.session_state.current_game}")
-        
-        teams = st.session_state.current_game.split(" @ ")
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("➕ Add Player")
-            
-            team = st.selectbox("Team", teams, key="add_team")
-            name = st.text_input("Player Name", placeholder="Dak Prescott")
-            pos = st.selectbox("Position", POSITIONS)
-            
-            if st.button("➕ Add & Auto-Analyze", type="primary"):
-                if name:
-                    player_data = {
-                        'name': name,
-                        'position': pos,
-                        'team': team
-                    }
-                    
-                    if st.session_state.current_game not in st.session_state.players:
-                        st.session_state.players[st.session_state.current_game] = []
-                    
-                    st.session_state.players[st.session_state.current_game].append(player_data)
-                    
-                    # AUTO-ANALYZE
-                    is_home = (team == teams[1])
-                    opponent = teams[1] if team == teams[0] else teams[0]
-                    
-                    # Get all stats for position
-                    stats = POSITION_STATS[pos]
-                    
-                    for stat in stats:
-                        result = calculate_projection(
-                            name, pos, stat, opponent, is_home, st.session_state.current_game
-                        )
-                        st.session_state.analysis_results.append(result)
-                    
-                    st.success(f"✅ Added {name} & analyzed {len(stats)} props!")
-                    st.rerun()
-        
-        with col2:
-            st.subheader("📋 Current Players")
-            if st.session_state.current_game in st.session_state.players:
-                players = st.session_state.players[st.session_state.current_game]
-                if players:
-                    for i, p in enumerate(players):
-                        c1, c2, c3 = st.columns([3, 2, 1])
-                        c1.write(f"{p['name']}")
-                        c2.write(f"{p['position']} - {p['team']}")
-                        if c3.button("🗑️", key=f"del{i}"):
-                            players.pop(i)
-                            # Remove from results
-                            st.session_state.analysis_results = [
-                                r for r in st.session_state.analysis_results 
-                                if r['player'] != p['name']
-                            ]
-                            st.rerun()
-                else:
-                    st.info("No players added yet")
-
-# ==================== TAB 3: RESULTS ====================
-with tab3:
-    st.header("📊 Analysis Results")
-    
-    if not st.session_state.analysis_results:
-        st.info("No analysis yet. Add players in Tab 2!")
-    else:
-        # Filter by confidence
-        threshold = st.slider("Min Confidence %", 50, 85, 60)
-        
-        filtered = [r for r in st.session_state.analysis_results if r['confidence'] >= threshold]
-        
-        st.markdown(f"### ✅ {len(filtered)} Props Over {threshold}% Confidence")
-        
-        if filtered:
-            for r in filtered:
-                with st.expander(f"**{r['player']}** - {r['stat']} | {r['confidence']}% 🎯"):
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Line", r['line'])
-                    c2.metric("Target", r['target'], f"+{r['margin']}")
-                    c3.metric("Confidence", f"{r['confidence']}%")
-                    c4.metric("vs", r['opponent'])
-            
-            # Parlay builder
-            if len(filtered) >= 2:
-                st.markdown("---")
-                st.markdown("### 💰 Build Parlay")
-                
-                legs = st.slider("Number of Legs", 2, min(12, len(filtered)), min(6, len(filtered)))
-                parlay = filtered[:legs]
-                
-                prob = np.prod([p['confidence']/100 for p in parlay]) * 100
-                
-                # Odds calculation
-                if legs == 2:
-                    odds_str, mult = "+264", 2.64
-                elif legs == 3:
-                    odds_str, mult = "+596", 5.96
-                elif legs == 4:
-                    odds_str, mult = "+1228", 11.28
-                elif legs == 5:
-                    odds_str, mult = "+2435", 23.35
-                elif legs == 6:
-                    odds_str, mult = "+4700", 47.0
-                elif legs == 8:
-                    odds_str, mult = "+9500", 95.0
-                elif legs == 10:
-                    odds_str, mult = "+25000", 250.0
-                else:
-                    odds_str, mult = "+40000", 400.0
-                
-                ev = (prob/100 * mult - 1) * 100
-                
-                col_a, col_b, col_c = st.columns(3)
-                col_a.metric("🎲 Probability", f"{prob:.2f}%")
-                col_b.metric("💵 Payout", odds_str)
-                col_c.metric("📈 Expected Value", f"{ev:+.0f}%")
-                
-                st.markdown("**Parlay Legs:**")
-                for i, p in enumerate(parlay, 1):
-                    home_icon = "🏠" if p['is_home'] else "✈️"
-                    st.markdown(f"{i}. {home_icon} **{p['player']}** OVER **{p['line']}** {p['stat']}")
-                
-                # Copy to clipboard format
-                st.markdown("---")
-                st.markdown("**📋 Copy This to Sportsbook:**")
-                parlay_text = "
-".join([
-                    f"{i}. {p['player']} OVER {p['line']} {p['stat']}"
-                    for i, p in enumerate(parlay, 1)
-                ])
-                st.code(parlay_text, language="text")
-        else:
-            st.info(f"No props meet {threshold}% threshold. Try lowering it.")
-
-st.markdown("---")
-st.markdown("<div style='text-align: center; color: #888;'>🏈 THE ONE FOOTBALL v7.0 - One-Click Edition</div>", unsafe_allow_html=True)
+    if st.session_state.current_game:
+        st.markdown("---")
+        st.success(f"**🎯 ACTIVE:** {st.session_state.current_game}")
+        cond = st.session_state.game_conditions.get(st.session_state.current_game, {})
+        if cond:
+            st.info(f"📊 O/U: {cond['total']} | Spread: {con
