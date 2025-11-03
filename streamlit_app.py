@@ -615,3 +615,4 @@ with tab5:
 
 st.markdown("---")
 st.markdown("<div style='text-align: center; color: #888;'>🏈 THE ONE FOOTBALL v5.0 - Elite Edition</div>", unsafe_allow_html=True)
+
