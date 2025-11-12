@@ -1,0 +1,11 @@
+# Python specific ignored files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+
+# Streamlit/Secret files to NEVER commit
+.streamlit/secrets.toml
