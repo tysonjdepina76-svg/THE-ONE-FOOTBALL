@@ -278,4 +278,4 @@ if st.button("Calculate Parlay Hit Probability"):
     base_probs = np.array(base_probs_input)
     correlation_matrix = edited_corr_df.values
     parlay_prob = adjusted_parlay_probability(base_probs, correlation_matrix)
-    st.success(f"Parlay Hit Probability (Adjusted for Correlation): {parlay_prob:.2%}")
+    st.success(f"Parlay Hit Probability (Adjusted for Correlation): {parlay_prob:.2%}") 
