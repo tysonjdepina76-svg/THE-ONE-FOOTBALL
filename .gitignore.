@@ -1,11 +1,5 @@
-# Python specific ignored files
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.venv/
-env/
-venv/
-
-# Streamlit/Secret files to NEVER commit
+.env
 .streamlit/secrets.toml
+.DS_Store
